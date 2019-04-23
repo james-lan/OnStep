@@ -15,19 +15,14 @@
 // -------------------------------------------------------------------------------------------------------------------------
 // ADJUST THE FOLLOWING TO CONFIGURE YOUR CONTROLLER FEATURES --------------------------------------------------------------
 
-// Enables internal goto assist mount modeling (for Eq mounts), default=_OFF (Experimental)
-// Note that Goto Assist in Sky Planetarium works even if this is off
-#define ALIGN_GOTOASSIST_OFF
-
 // Default speed for Serial1 com port, Default=9600
-#define SERIAL1_BAUD_DEFAULT 9600
+#define SERIAL_B_BAUD_DEFAULT 9600
 
 // ESP8266 reset and GPIO0 control, this sets run mode for normal operation.  Uploading programmer firmware to the OpStep MCU can then enable sending new firmware to the ESP8266-01
 // Pin 18 (Aux1) for GPIO0 and Pin 5 (Aux2) for Rst control.  Choose only one feature on Aux1/2.
 #define ESP8266_CONTROL_OFF
 
-// Mount type, default is _GEM (German Equatorial) other options are _FORK, _FORK_ALT.  _FORK switches off Meridian Flips after (1, 2 or 3 star) alignment is done.  _FORK_ALT disables Meridian Flips (1 star align.)
-// _ALTAZM is for Alt/Azm mounted 'scopes (1 star align only.)
+// Mount type, default is _GEM (German Equatorial) other options are _FORK, _FORK_ALT.  _FORK switches off Meridian Flips after alignment is done.  _FORK_ALT disables Meridian Flips.  _ALTAZM is for Alt/Azm mounted 'scopes.
 #define MOUNT_TYPE_GEM
 
 // Strict parking, default=_OFF.  Set to _ON and unparking is only allowed if successfully parked.  Otherwise unparking is allowed if at home and not parked (the Home/Reset command ":hF#" sets this state.) 
@@ -51,6 +46,13 @@
 // If the stop command is never received the guide will continue forever unless this is enabled.
 #define GUIDE_TIME_LIMIT 0
 
+// Set to _ON to disable backlash takeup during guiding at <= 1X, default=_OFF
+#define GUIDES_DISABLE_BACKLASH_ON
+
+// RTC (Real Time Clock) support, default=_OFF. 
+// Other options: RTC_TEENSY for enabling internal Teensy RTC - a resonator soldered to Teensy board and an external battery are required.
+#define RTC_OFF
+
 // PPS use _ON or _PULLUP to enable the input and use the built-in pullup resistor.  Sense rising edge on Pad 28 for optional precision clock source (GPS, for example), default=_OFF [infrequently used option]
 #define PPS_SENSE_OFF
 
@@ -62,16 +64,16 @@
 // PEC sense, rising edge (default with PEC_SENSE_STATE HIGH, use LOW for falling edge, ex. PEC_SENSE_ON) ; for optional PEC index
 #define PEC_SENSE_STATE HIGH
 
-// Switch close (to ground) on Pin 4 for optional limit sense (stops gotos and/or tracking), default=_OFF
 #define LIMIT_SENSE_OFF
+// Switch close (to ground) on Aux3 (Pin 4) for optional limit sense (stops gotos and/or tracking), default=_OFF  Choose only one feature on Aux4.
 
 // Light status LED by sink to ground (Pin 19), default=_ON.
 // _ON and OnStep keeps this illuminated to indicate that the controller is active.  When sidereal tracking this LED will rapidly flash
 #define STATUS_LED_PINS_ON
-// Light 2nd status LED by sink to ground (Pin 22), default=_OFF.
+// Light 2nd status LED by sink to ground Aux4 (Pin 22), default=_OFF.  Choose only one feature on Aux4.
 // _ON sets this to blink at 1 sec intervals when PPS is synced.  Turns off if tracking is stopped.  Turns on during gotos.
 #define STATUS_LED2_PINS_OFF
-// Light reticule LED by sink to ground (Pin 22), default=_OFF.  (don't use with STATUS_LED2_PINS_ON)
+// Light reticule LED by sink to ground Aux4 (Pin 22), default=_OFF.  Choose only one feature on Aux4.
 // RETICULE_LED_PINS n, where n=0 to 255 activates this feature and sets default brightness
 #define RETICULE_LED_PINS_OFF
 
@@ -81,21 +83,34 @@
 // Sound state at startup, default=_ON.
 #define DEFAULT_SOUND_ON
 
+// External temparature monitoring via DS1820 on ONE WIRE interface (Pin 24.)  Default _OFF.
+#define TEMPERATURE_DS1820_OFF
+
 // Optionally adjust tracking rate to compensate for atmospheric refraction, default=_OFF
 // can be turned on/off with the :Tr# and :Tn# commands regardless of this setting
 #define TRACK_REFRACTION_RATE_DEFAULT_OFF
 
+// Set to _OFF and OnStep will allow Syncs to change pier side for GEM mounts (on/off), default=_ON
+#define SYNC_CURRENT_PIER_SIDE_ONLY_ON
+
 // Set to _ON and OnStep will remember the last auto meridian flip setting (on/off), default=_OFF
 #define REMEMBER_AUTO_MERIDIAN_FLIP_OFF
+
+// Set to _ON and OnStep will travel directly across a meridian flip without visiting the home position (on/off), default=_OFF (only applies if pause at home is disabled)
+#define MERIDIAN_FLIP_SKIP_HOME_OFF
 
 // Set to _ON and OnStep will remember the last meridian flip pause at home setting (on/off), default=_OFF
 #define REMEMBER_PAUSE_HOME_OFF
 
+// Automatic homing; switch state changes at the home position, uses Aux3 (Pin 4) and Aux4 (Pin 22).  Choose only one feature on Aux3/4.  For MOUNT_TYPE_GEM only.
+#define HOME_SENSE_OFF               // Default _OFF, use _ON to have OnStep automatically detect and use home switches as follows
+#define HOME_AXIS1_REVERSE_OFF       // Pin Aux3 state should be HIGH when clockwise of the home position (as seen from front,) LOW otherwise; reverse if necessary
+#define HOME_AXIS2_REVERSE_OFF       // Pin Aux4 state should be HIGH when clockwise of the home position (as seen from above,) LOW otherwise; reverse if necessary
+
 // ADJUST THE FOLLOWING TO MATCH YOUR MOUNT --------------------------------------------------------------------------------
-#define REMEMBER_MAX_RATE_OFF        // set to _ON and OnStep will remember rates set in the ASCOM driver, Android App, etc. default=_OFF 
-#define MaxRate                   96 // microseconds per microstep default setting for gotos, can be adjusted for two times lower or higher at run-time
-                                     // minimum* (fastest goto) is around 16 (Teensy3.2,) default=96 higher is ok
-                                     // * = minimum can be lower, when both AXIS1/AXIS2_MICROSTEPS are used the compiler will warn you if it's too low
+#define REMEMBER_SLEW_RATE_OFF       // Set to _ON and OnStep will remember rates set in the ASCOM driver, Android App, etc. default=_OFF.
+#define DesiredBaseSlewRate      1.0 // Desired slew (goto) rate in degrees/second; also adjustable at run-time from 1/2 to 2x this rate.
+                                     // The resulting step rate is automatically reduced if too high for the current hardware/settings.
 
 #define DegreesForAcceleration   5.0 // approximate number of degrees for full acceleration or deceleration: higher values=longer acceleration/deceleration
                                      // Default=5.0, too low (about <1) can cause gotos to never end if micro-step mode switching is enabled.
@@ -131,12 +146,15 @@
                                      // For example, a value of +80 would stop gotos/tracking near the north celestial pole.
                                      // For a Northern Hemisphere user, this would stop tracking when the mount is in the polar home position but
                                      // that can be easily worked around by doing an alignment once and saving a park position (assuming a 
-                                     // fork/yolk mount with meridian flips turned off by setting the minutesPastMeridian values to cover the whole sky)
+                                     // fork/yoke mount with meridian flips turned off by setting the minutesPastMeridian values to cover the whole sky)
 #define MaxAzm                   180 // Alt/Az mounts only. +/- maximum allowed Azimuth, default =  180.  Allowed range is 180 to 360
 
 // AXIS1/2 STEPPER DRIVER CONTROL ------------------------------------------------------------------------------------------
 // Axis1: Pins 20,21 = Step,Dir (RA/Azm)
 // Axis2: Pins  3, 2 = Step,Dir (Dec/Alt)
+
+// Step signal wave form.  Use SQUARE for best compatibility or use PULSE to allow faster step rates.  Default SQUARE.
+#define STEP_WAVE_FORM SQUARE
 
 // Reverse the direction of movement.  Adjust as needed or reverse your wiring so things move in the right direction
 #define AXIS1_REVERSE_OFF            // RA/Azm axis
@@ -153,8 +171,7 @@
 
 // Basic stepper driver mode setup . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
 // If used, this requires connections M0, M1, and M2 on Pins 15,16,17 for Axis1 (RA/Azm) and Pins 8,7,6 for Axis2 (Dec/Alt.)
-// Stepper driver models are as follows: (for example AXIS1_DRIVER_MODEL DRV8825,) A4988, LV8729, RAPS128, TMC2208, TMC2130 (spreadCycle,) 
-// TMC2130_QUIET (stealthChop tracking,) TMC2130_VQUIET (full stealthChop mode,) add _LOWPWR for 50% power during tracking (for example: TMC2130_QUIET_LOWPWR)
+// Stepper driver models are as follows: (for example AXIS1_DRIVER_MODEL DRV8825,) A4988, LV8729, RAPS128, S109, ST820, TMC2208, TMC2130 (spreadCycle,) 
 #define AXIS1_DRIVER_MODEL_OFF      // Axis1 (RA/Azm):  Default _OFF, Stepper driver model (see above)
 #define AXIS1_MICROSTEPS_OFF        // Axis1 (RA/Azm):  Default _OFF, Microstep mode when the scope is doing sidereal tracking (for example: AXIS1_MICROSTEPS 32)
 #define AXIS1_MICROSTEPS_GOTO_OFF   // Axis1 (RA/Azm):  Default _OFF, Optional microstep mode used during gotos (for example: AXIS1_MICROSTEPS_GOTO 2)
@@ -162,6 +179,7 @@
 #define AXIS2_MICROSTEPS_OFF        // Axis2 (Dec/Alt): Default _OFF, Microstep mode when the scope is doing sidereal tracking
 #define AXIS2_MICROSTEPS_GOTO_OFF   // Axis2 (Dec/Alt): Default _OFF, Optional microstep mode used during gotos
 // Note: you can replace this section with the contents of "AdvancedStepperSetup.txt" . . . . . . . . . . . . . . . . . . . 
+// TMC2130_QUIET (stealthChop tracking,) TMC2130_VQUIET (stealthChop tracking & slew,) add _LOWPWR for 50% power during tracking (for example: TMC2130_QUIET_LOWPWR)
 
 // Stepper driver Fault detection on Pins 18 (Aux1) and 5 (Aux2,) choose only one feature to use on Aux1/2.  The SPI interface (on M0/M1/M2/Aux) can be used to detect errors on the TMC2130.
 // other settings are LOW, HIGH, TMC2130 (if available applies internal pullup if LOW and pulldown if HIGH.)
@@ -170,40 +188,40 @@
 
 // ------------------------------------------------------------------------------------------------------------------------
 // THE FOLLOWING ARE INFREQUENTLY USED OPTIONS FOR THE MINIPCB SINCE USING ANY OF THESE WOULD REQUIRE SOLDERING TO THE PCB BACK AND ADDING OFF-PCB CIRCUITRY, MUCH EASIER TO USE A MAXPCB AND TEENSY3.5/3.6
-// FOCUSER ROTATOR OR ALT/AZ DE-ROTATION ----------------------------------------------------------------------------------
+// CAMERA ROTATOR OR ALT/AZ DE-ROTATION -----------------------------------------------------------------------------------
 // Pads 30,33 = Step,Dir (choose either this option or the second focuser, not both)
-#define ROTATOR_OFF                  // enable or disable rotator feature (for any mount type,) default=_OFF (de-rotator is available only for MOUNT_TYPE_ALTAZM.) [infrequently used option]
+#define ROTATOR_OFF                  // use _ON to enable the rotator (for any mount type,) default=_OFF (this is also a de-rotator for MOUNT_TYPE_ALTAZM mounts.)
 #define MaxRateAxis3               8 // this is the minimum number of milli-seconds between micro-steps, default=8
 #define StepsPerDegreeAxis3     64.0 // calculated as    :  stepper_steps * micro_steps * gear_reduction1 * (gear_reduction2/360)
                                      // Rotator          :  24            * 8           * 20              *  6/360                = 64
                                      // For de-rotation of Alt/Az mounts a quick estimate of the required resolution (in StepsPerDegree)
                                      // would be an estimate of the circumference of the useful imaging circle in (pixels * 2)/360
-#define MinAxis3                -180 // minimum allowed Axis3 rotator, default = -180
-#define MaxAxis3                 180 // maximum allowed Axis3 rotator, default =  180
+#define MinAxis3                -180 // minimum allowed rotator angle, default = -180
+#define MaxAxis3                 180 // maximum allowed rotator angle, default =  180
 #define AXIS3_REVERSE_OFF            // reverse the direction of Axis3 rotator movement
 
 // FOCUSER1 ---------------------------------------------------------------------------------------------------------------
 // Pads 31,32 = Step,Dir
-#define FOCUSER1_OFF                 // enable or disable focuser feature, default=_OFF
+#define FOCUSER1_OFF                 // use _ON to enable this focuser, default=_OFF
 #define MaxRateAxis4               8 // this is the minimum number of milli-seconds between micro-steps, default=8
-#define StepsPerMicrometerAxis4  0.5 // figure this out by testing or other means
-#define MinAxis4               -25.0 // minimum allowed Axis4 position in millimeters, default = -25.0
-#define MaxAxis4                25.0 // maximum allowed Axis4 position in millimeters, default =  25.0
-#define AXIS4_REVERSE_OFF            // reverse the direction of Axis4 focuser movement
+#define StepsPerMicrometerAxis4  0.5 // figure this out by testing or other means.
+#define MinAxis4               -25.0 // minimum allowed position in millimeters, default = -25.0
+#define MaxAxis4                25.0 // maximum allowed position in millimeters, default =  25.0
+#define AXIS4_REVERSE_OFF            // reverse the direction of Axis4 focuser movement.
 
 // FOCUSER2 ---------------------------------------------------------------------------------------------------------------
 // Pads 30,33 = Step,Dir (choose either this option or the rotator, not both)
-#define FOCUSER2_OFF                 // enable or disable focuser feature, default=_OFF
+#define FOCUSER2_OFF                 // use _ON to enable this focuser, default=_OFF
 #define MaxRateAxis5               8 // this is the minimum number of milli-seconds between micro-steps, default=8
-#define StepsPerMicrometerAxis5  0.5 // figure this out by testing or other means
-#define MinAxis5               -25.0 // minimum allowed Axis5 position in millimeters, default = -25.0
-#define MaxAxis5                25.0 // maximum allowed Axis5 position in millimeters, default =  25.0
-#define AXIS5_REVERSE_OFF            // reverse the direction of Axis5 focuser movement
+#define StepsPerMicrometerAxis5  0.5 // figure this out by testing or other means.
+#define MinAxis5               -25.0 // minimum allowed position in millimeters, default = -25.0
+#define MaxAxis5                25.0 // maximum allowed position in millimeters, default =  25.0
+#define AXIS5_REVERSE_OFF            // reverse the direction of Axis5 focuser movement.
 
 // THAT'S IT FOR USER CONFIGURATION!
 
 // -------------------------------------------------------------------------------------------------------------------------
 #define FileVersionConfig 2
-#include "Pins.MiniPCB.h"
+#include "src/pinmaps/Pins.MiniPCB.h"
 #endif
 

@@ -3,6 +3,12 @@
 // We define a more generic symbol, in case more TM4C boards based on different lines are supported
 #define __ARM_TI_TM4C__
 
+// Lower limit (fastest) step rate in uS for this platform (in SQW mode)
+#define HAL_MAXRATE_LOWER_LIMIT 16
+
+// width of step pulse
+#define HAL_PULSE_WIDTH 500
+
 #if defined(__TM4C123GH6PM__) || defined(__LM4F120H5QR__)
 // no pre-scaling of timers on Tiva Launchpads
 #define F_BUS SysCtlClockGet()
@@ -19,24 +25,29 @@
 #include <driverlib/interrupt.h>
 #include "inc/hw_ints.h"
 
-// The Energia IDE only has EEPROM.read and EEPROM.write, it does not include EEPROM.update.
-// My patch has been accepted but it will take a while until the next version is released.
-// Until then you can use the included EEPROM_LP.ino and EEPROM_LP.h.
-#include "EEPROM_LP.h"
-
-// Different values for EEPROM end
-#if defined(__TM4C123GH6PM__) || defined(__LM4F120H5QR__)
-#define E2END 2047
-#elif defined(__TM4C1294NCPDT__) || defined(__TM4C1294XNCZAD__)
-#define E2END 6143
+// Non-volatile storage ------------------------------------------------------------------------------
+#if defined(NV_AT24C32)
+  #include "../drivers/NV_I2C_EEPROM_AT24C32.h"
+#elif defined(NV_MB85RC256V)
+  #include "../drivers/NV_I2C_FRAM_MB85RC256V.h"
+#else
+  #include "../drivers/NV_EEPROM_TIVA.h"
+  #if defined(__TM4C123GH6PM__) || defined(__LM4F120H5QR__)
+  #define E2END 2047
+  #elif defined(__TM4C1294NCPDT__) || defined(__TM4C1294XNCZAD__)
+  #define E2END 6143
+  #endif
 #endif
+
+// Use an RTC (Real Time Clock) if present -----------------------------------------------------------
+#include "../drivers/RTCw.h"
 
 // Interrupts
 #define cli() noInterrupts()
 #define sei() interrupts()
-#define HAL_TIMER1_INT_CLEAR TimerIntClear( Timer1_base, TIMER_TIMA_TIMEOUT )
-#define HAL_TIMER3_INT_CLEAR TimerIntClear( Timer3_base, TIMER_TIMA_TIMEOUT )
-#define HAL_TIMER4_INT_CLEAR TimerIntClear( Timer4_base, TIMER_TIMA_TIMEOUT )
+#define HAL_TIMER1_PREFIX TimerIntClear( Timer1_base, TIMER_TIMA_TIMEOUT )
+#define HAL_TIMER3_PREFIX TimerIntClear( Timer3_base, TIMER_TIMA_TIMEOUT )
+#define HAL_TIMER4_PREFIX TimerIntClear( Timer4_base, TIMER_TIMA_TIMEOUT )
 
 // Lower limit (fastest) step rate in uS for this platform
 #if defined(__TM4C1294NCPDT__) || defined(__TM4C1294XNCZAD__)
@@ -49,17 +60,28 @@
 
 // New symbols for the Serial ports so they can be remapped if necessary -----------------------------
 #if defined(__TM4C123GH6PM__) || defined(__LM4F120H5QR__)
-#define PSerial Serial
-#define PSerial1 Serial1
+#define SerialA Serial
+#define SerialB Serial1
 #elif defined(__TM4C1294NCPDT__) || defined(__TM4C1294XNCZAD__)
-#define PSerial Serial1
-#define PSerial1 Serial7
+#define SerialA Serial1
+#define SerialB Serial7
 #endif
-// SERIAL is always enabled SERIAL1 and SERIAL4 are optional
-#define HAL_SERIAL1_ENABLED
+// SerialA is always enabled, SerialB and SerialC are optional
+#define HAL_SERIAL_B_ENABLED
 
 // New symbol for the default I2C port -------------------------------------------------------------
 #define HAL_Wire Wire
+
+//--------------------------------------------------------------------------------------------------
+// General purpose initialize for HAL
+void HAL_Init(void) {
+}
+
+//--------------------------------------------------------------------------------------------------
+// Internal MCU temperature (in degrees C)
+float HAL_MCU_Temperature(void) {
+  return -999;
+}
 
 //--------------------------------------------------------------------------------------------------
 // Initialize timers
@@ -204,4 +226,3 @@ void QuickSetIntervalAxis2(uint32_t r) {
 #define StepPinAxis2_LOW CLR(Axis2StepPORT, Axis2StepBit)
 #define DirPinAxis2_HIGH SET(Axis2DirPORT, Axis2DirBit)
 #define DirPinAxis2_LOW CLR(Axis2DirPORT, Axis2DirBit)
-

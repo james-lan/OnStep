@@ -1,27 +1,77 @@
 // Platform setup ------------------------------------------------------------------------------------
 
-#include <EEPROM.h>
-
 // This platform doesn't support true double precision math
 #define HAL_NO_DOUBLE_PRECISION
 
-// This is for ~16MHz AVR processors or similar.  These MCUs can't do a wide range of degrees for misalignment modeling (Goto Assist.)
-// They can, however, run Motor Timer ISR's w/stepper driver signal timing met in one pass vs. two for faster processors
+// This is for ~16MHz AVR processors or similar.
 #define HAL_SLOW_PROCESSOR
 
-// Lower limit (fastest) step rate in uS for this platform
-#define MaxRateLowerLimit 32
+// Set default timer mode unless specified
+#ifndef STEP_WAVE_FORM
+  #define STEP_WAVE_FORM PULSE
+#endif
+
+// Lower limit (fastest) step rate in uS for this platform (in SQW mode)
+#define HAL_MAXRATE_LOWER_LIMIT 51.2
+
+// Width of step pulse
+#define HAL_PULSE_WIDTH 10000
 
 // New symbols for the Serial ports so they can be remapped if necessary -----------------------------
-// Use low overhead serial
-#include "HAL_Serial.h"
-// SERIAL is always enabled SERIAL1 and SERIAL4 are optional
-#define HAL_SERIAL1_ENABLED
-// this tells OnStep that a .transmit() method needs to be called to send data
-#define HAL_SERIAL_TRANSMIT
+#ifndef MEGA2560_ARDUINO_SERIAL_ON
+  // SerialA is always enabled, SerialB and SerialC are optional
+  #define HAL_SERIAL_B_ENABLED     // Enable support for RX1/TX1
+
+  // on a Ramps1.4 board always enable SerialC and default to using Serial2 for it
+  #ifdef Ramps14_ON
+    #define HAL_SERIAL_C_ENABLED     // Enable support for third serial channel
+    #define HAL_SERIAL_C_SERIAL2     // Use RX2/TX2 for channel C (defaults to RX3/TX3 otherwise.)
+  #endif
+
+  // this tells OnStep that a .transmit() method needs to be called to send data
+  #define HAL_SERIAL_TRANSMIT
+
+  // Use low overhead serial
+  #include "HAL_Serial.h"
+#else
+  // New symbols for the Serial ports so they can be remapped if necessary -----------------------------
+  #define SerialA Serial
+  // SerialA is always enabled, SerialB and SerialC are optional
+  #define SerialB Serial1
+  #define HAL_SERIAL_B_ENABLED
+#endif
 
 // New symbol for the default I2C port -------------------------------------------------------------
 #define HAL_Wire Wire
+
+// Non-volatile storage ------------------------------------------------------------------------------
+#if defined(NV_AT24C32)
+  #ifdef E2END
+    #undef E2END
+  #endif
+  #include "../drivers/NV_I2C_EEPROM_AT24C32.h"
+#elif defined(NV_MB85RC256V)
+  #ifdef E2END
+    #undef E2END
+  #endif
+  #include "../drivers/NV_I2C_FRAM_MB85RC256V.h"
+#else
+  #include "../drivers/NV_EEPROM.h"
+#endif
+
+// Use an RTC (Real Time Clock) if present -----------------------------------------------------------
+#include "../drivers/RTCw.h"
+
+//--------------------------------------------------------------------------------------------------
+// General purpose initialize for HAL
+void HAL_Init(void) {
+}
+
+//--------------------------------------------------------------------------------------------------
+// Internal MCU temperature (in degrees C)
+float HAL_MCU_Temperature(void) {
+  return -999;
+}
 
 //--------------------------------------------------------------------------------------------------
 // Initialize timers
@@ -108,4 +158,3 @@ void Timer1SetInterval(long iv, double rateRatio) {
 #define StepPinAxis2_LOW CLR(Axis2StepPORT, Axis2StepBit)
 #define DirPinAxis2_HIGH SET(Axis2DirPORT, Axis2DirBit)
 #define DirPinAxis2_LOW CLR(Axis2DirPORT, Axis2DirBit)
-

@@ -1,115 +1,135 @@
 //--------------------------------------------------------------------------------------------------
 // Goto, commands to move the telescope to an location or to report the current location
 
+// check if goto/sync is valid
+GotoErrors validateGoto() {
+  // Check state
+  if (faultAxis1 || faultAxis2)                return GOTO_ERR_HARDWARE_FAULT;
+  if (!axis1Enabled)                           return GOTO_ERR_STANDBY;
+  if (parkStatus!=NotParked)                   return GOTO_ERR_PARK;
+  if (guideDirAxis1 || guideDirAxis2)          return GOTO_ERR_IN_MOTION;
+  if (trackingSyncInProgress())                return GOTO_ERR_GOTO;
+  if (trackingState==TrackingMoveTo)           return GOTO_ERR_GOTO;
+  return GOTO_ERR_NONE;
+}
+
+GotoErrors validateGotoCoords(double HA, double Dec, double Alt) {
+  // Check coordinates
+  if (Alt<minAlt)                              return GOTO_ERR_BELOW_HORIZON;
+  if (Alt>maxAlt)                              return GOTO_ERR_ABOVE_OVERHEAD;
+  if (Dec>MaxDec)                              return GOTO_ERR_OUTSIDE_LIMITS;
+  if (Dec<MinDec)                              return GOTO_ERR_OUTSIDE_LIMITS;
+  if ((fabs(HA)>(double)UnderPoleLimit*15.0) ) return GOTO_ERR_OUTSIDE_LIMITS;
+  return GOTO_ERR_NONE;
+}
+
+GotoErrors validateGoToEqu(double RA, double Dec) {
+  double a,z;
+  double HA=haRange(LST()*15.0-RA);
+  equToHor(HA,Dec,&a,&z);
+  GotoErrors r=validateGoto(); if (r!=GOTO_ERR_NONE) return r;
+  r=validateGotoCoords(HA,Dec,a);
+  return r;
+}
+
 // syncs the telescope/mount to the sky
-int syncEqu(double RA, double Dec) {
+GotoErrors syncEqu(double RA, double Dec) {
   double a,z;
 
   // Convert RA into hour angle, get altitude
   // hour angleTrackingMoveTo
   double HA=haRange(LST()*15.0-RA);
-  EquToHor(HA,Dec,&a,&z);
+  equToHor(HA,Dec,&a,&z);
 
   // validate
-  int f=validateGoto(); if (f!=0) return f;
-  f=validateGotoCoords(HA,Dec,a); if (f!=0) return f;
-
-  // correct for polar misalignment only by clearing the index offsets
-  indexAxis1=0; indexAxis2=0; indexAxis1Steps=0; indexAxis2Steps=0;
+  GotoErrors f=validateGoto(); if ((f!=GOTO_ERR_NONE) && (f!=GOTO_ERR_STANDBY)) return f;
+  f=validateGotoCoords(HA,Dec,a); if (f!=GOTO_ERR_NONE) return f;
 
   double Axis1,Axis2;
 #ifdef MOUNT_TYPE_ALTAZM
-  if (Align.isReady()) {
-    // B=RA, D=Dec, H=Elevation, F=Azimuth (all in degrees)
-    Align.EquToInstr(HA,Dec,&Axis2,&Axis1);
-  } else {
-    EquToHor(HA,Dec,&Axis2,&Axis1);
-  }
-  while (Axis1>180.0) Axis1-=360.0;
-  while (Axis1<-180.0) Axis1+=360.0;
+  equToHor(HA,Dec,&Axis2,&Axis1);
+  Align.horToInstr(Axis2,Axis1,&Axis2,&Axis1,getInstrPierSide());
+  Axis1=haRange(Axis1);
 #else
-  GeoAlign.EquToInstr(latitude,HA,Dec,&Axis1,&Axis2);
+  Align.equToInstr(HA,Dec,&Axis1,&Axis2,getInstrPierSide());
 #endif
 
   // just turn on tracking
-  if (pierSide==PierSideNone) {
-    trackingState=TrackingSidereal;
-    EnableStepperDrivers();
-    atHome=false;
-  }
+  if (atHome) { trackingState=TrackingSidereal; enableStepperDrivers(); }
 
+  int newPierSide=getInstrPierSide();
   if (meridianFlip!=MeridianFlipNever) {
-    // we're in the polar home position, so pick a side (of the pier)
-    if (preferredPierSide==PPS_WEST) {
-      // west side of pier - we're in the eastern sky and the HA's are negative
-      pierSide=PierSideWest;
-      defaultDirAxis2=defaultDirAxis2WInit;
-    } else
-    if (preferredPierSide==PPS_EAST) {
-      // east side of pier - we're in the western sky and the HA's are positive
-      pierSide=PierSideEast;
-      defaultDirAxis2=defaultDirAxis2EInit;
-    } else {
-      // best side of pier
-      if (Axis1<0) {
-        // west side of pier - we're in the eastern sky and the HA's are negative
-        pierSide=PierSideWest;
-        defaultDirAxis2=defaultDirAxis2WInit;
-      } else { 
-        // east side of pier - we're in the western sky and the HA's are positive
-        pierSide=PierSideEast;
-        defaultDirAxis2=defaultDirAxis2EInit;
-      }
+    if (atHome) { if (Axis1<0) newPierSide=PierSideWest; else newPierSide=PierSideEast; } else // best side of pier decided based on meridian
+    if (preferredPierSide==PPS_WEST) newPierSide=PierSideWest; else // west side of pier - we're in the eastern sky and the HA's are negative
+    if (preferredPierSide==PPS_EAST) newPierSide=PierSideEast; else // east side of pier - we're in the western sky and the HA's are positive
+    {
+#if defined(SYNC_CURRENT_PIER_SIDE_ONLY_ON) && defined(MOUNT_TYPE_GEM)
+      if ((getInstrPierSide()==PierSideWest) && (haRange(Axis1)> minutesPastMeridianW/4.0)) newPierSide=PierSideEast;
+      if ((getInstrPierSide()==PierSideEast) && (haRange(Axis1)<-minutesPastMeridianE/4.0)) newPierSide=PierSideWest;
+#else
+      if (Axis1<0) newPierSide=PierSideWest; else newPierSide=PierSideEast; // best side of pier decided based on meridian
+#endif
     }
+  
+#if defined(SYNC_CURRENT_PIER_SIDE_ONLY_ON) && defined(MOUNT_TYPE_GEM)
+    if (!atHome && (newPierSide!=getInstrPierSide())) return GOTO_ERR_OUTSIDE_LIMITS;
+#endif
   } else {
     // always on the "east" side of pier - we're in the western sky and the HA's are positive
     // this is the default in the polar-home position and also for MOUNT_TYPE_FORK and MOUNT_TYPE_ALTAZM.  MOUNT_TYPE_FORK_ALT ends up pierSideEast, but flips are allowed until aligned.
-    pierSide=PierSideEast;
-    defaultDirAxis2=defaultDirAxis2EInit;
+    newPierSide=PierSideEast;
   }
 
-  // compute index offsets indexAxis1/indexAxis2, if they're within reason 
-  // actual posAxis1/posAxis2 are the coords of where this really is
-  // indexAxis1/indexAxis2 are the amount to add to the actual RA/Dec to arrive at the correct position
-  // double's are really single's on the ATMega's, and we're a digit or two shy of what's required to
-  // hold the steps in some cases but it's still getting down to the arc-sec level
-  // HA goes from +180...0..-180
-  //                 W   .   E
-  // indexAxis1 and indexAxis2 values get subtracted to arrive at the correct location
-  cli();
-  indexAxis1=Axis1-((double)(long)targetAxis1.part.m)/(double)StepsPerDegreeAxis1;
-  indexAxis1Steps=(long)(indexAxis1*(double)StepsPerDegreeAxis1);
-  indexAxis2=Axis2-((double)(long)targetAxis2.part.m)/(double)StepsPerDegreeAxis2;
-  indexAxis2Steps=(long)(indexAxis2*(double)StepsPerDegreeAxis2);
-  sei();
+  setIndexAxis1(Axis1,newPierSide);
+  setIndexAxis2(Axis2,newPierSide);
 
-  return 0;
+  return GOTO_ERR_NONE;
 }
 
-// this returns the telescopes HA and Dec (index corrected for Alt/Azm)
-void getHADec(double *HA, double *Dec) {
+// syncs internal counts to shaft encoder position (in degrees)
+GotoErrors syncEnc(double EncAxis1, double EncAxis2) {
+  // validate
+  GotoErrors f=validateGoto(); if (f!=GOTO_ERR_NONE) return f;
+
+  // no sync from encoders during an alignment!
+  if (alignActive()) return GOTO_ERR_NONE;
+
+  long e1=EncAxis1*(double)StepsPerDegreeAxis1;
+  long e2=EncAxis2*(double)StepsPerDegreeAxis2;
+
+  long a1,a2;
   cli();
-  double Axis1=posAxis1;
-  double Axis2=posAxis2;
+  a1=posAxis1;
+  a2=posAxis2;
   sei();
+  a1+=indexAxis1Steps;
+  a2+=indexAxis2Steps;
+
+  long delta1=a1-e1;
+  long delta2=a2-e2;
+
+  indexAxis1Steps-=delta1;
+  indexAxis1=(double)indexAxis1Steps/(double)StepsPerDegreeAxis1;
+  indexAxis2Steps-=delta2;
+  indexAxis2=(double)indexAxis2Steps/(double)StepsPerDegreeAxis2;
+
+  return GOTO_ERR_NONE;
+}
+
+// get internal counts as shaft encoder position (in degrees)
+int getEnc(double *EncAxis1, double *EncAxis2) {
+  long a1,a2;
+  cli();
+  a1=posAxis1;
+  a2=posAxis2;
+  sei();
+  a1+=indexAxis1Steps;
+  a2+=indexAxis2Steps;
   
-#ifdef MOUNT_TYPE_ALTAZM
-  // get the hour angle (or Azm)
-  double z=Axis1/(double)StepsPerDegreeAxis1;
-  // get the declination (or Alt)
-  double a=Axis2/(double)StepsPerDegreeAxis2;
+  *EncAxis1=(double)a1/(double)StepsPerDegreeAxis1;
+  *EncAxis2=(double)a2/(double)StepsPerDegreeAxis2;
 
-  // instrument to corrected horizon
-  z+=indexAxis1;
-  a+=indexAxis2;
-
-  HorToEqu(a,z,HA,Dec); // convert from Alt/Azm to HA/Dec
-#else
-  // get the hour angle (or Azm)
-  *HA=Axis1/(double)StepsPerDegreeAxis1;
-  // get the declination (or Alt)
-  *Dec=Axis2/(double)StepsPerDegreeAxis2;
-#endif
+  return 0;
 }
 
 // gets the telescopes current RA and Dec, set returnHA to true for Horizon Angle instead of RA
@@ -117,23 +137,16 @@ boolean getEqu(double *RA, double *Dec, boolean returnHA) {
   double HA;
  
 #ifndef MOUNT_TYPE_ALTAZM
-  // get the HA and Dec
-  getHADec(&HA,Dec);
-  // correct for under the pole, polar misalignment, and index offsets
-  GeoAlign.InstrToEqu(latitude,HA,*Dec,&HA,Dec);
+  HA=getInstrAxis1();
+  *Dec=getInstrAxis2();
+  // apply pointing model
+  Align.instrToEqu(HA,*Dec,&HA,Dec,getInstrPierSide());
 #else
-  if (Align.isReady()) {
-    cli();
-    // get the Azm/Alt
-    double F=(double)(posAxis1+indexAxis1Steps)/(double)StepsPerDegreeAxis1;
-    double H=(double)(posAxis2+indexAxis2Steps)/(double)StepsPerDegreeAxis2;
-    sei();
-    // H=Elevation, F=Azimuth, B=RA, D=Dec (all in degrees)
-    Align.InstrToEqu(H,F,&HA,Dec);
-  } else {
-    // get the HA and Dec (already index corrected on AltAzm)
-    getHADec(&HA,Dec);
-  }
+  double Z=getInstrAxis1();
+  double A=getInstrAxis2();
+  // apply pointing model
+  Align.instrToHor(A,Z,&A,&Z,getInstrPierSide());
+  horToEqu(A,Z,&HA,Dec);
 #endif
 
   // return either the RA or the HA depending on returnHA
@@ -150,18 +163,14 @@ boolean getEqu(double *RA, double *Dec, boolean returnHA) {
 boolean getApproxEqu(double *RA, double *Dec, boolean returnHA) {
   double HA;
   
-  // get the HA and Dec (already index corrected on AltAzm)
-  getHADec(&HA,Dec);
-  
 #ifndef MOUNT_TYPE_ALTAZM
-  // instrument to corrected equatorial
-  HA+=indexAxis1;
-  *Dec+=indexAxis2;
+  HA=getInstrAxis1();
+  *Dec=getInstrAxis2();
+#else
+  double Z=getInstrAxis1();
+  double A=getInstrAxis2();
+  horToEqu(A,Z,&HA,Dec);
 #endif
-  
-  // un-do, under the pole
-  if (*Dec>90.0) { *Dec=(90.0-*Dec)+90; HA=HA-180.0; }
-  if (*Dec<-90.0) { *Dec=(-90.0-*Dec)-90.0; HA=HA-180.0; }
 
   HA=haRange(HA);
   if (*Dec>90.0) *Dec=+90.0;
@@ -178,37 +187,50 @@ boolean getApproxEqu(double *RA, double *Dec, boolean returnHA) {
 boolean getHor(double *Alt, double *Azm) {
   double h,d;
   getEqu(&h,&d,true);
-  EquToHor(h,d,Alt,Azm);
+  equToHor(h,d,Alt,Azm);
   return true;
 }
 
+// causes a goto to the same RA/Dec on the opposite pier side if possible
+GotoErrors goToHere(bool toEastOnly) {
+  bool verified=false;
+  PreferredPierSide p=preferredPierSide;
+  if (meridianFlip==MeridianFlipNever) return GOTO_ERR_OUTSIDE_LIMITS;
+  cli(); long h=posAxis1+indexAxis1Steps; sei();
+  if ((!toEastOnly) && (getInstrPierSide()==PierSideEast) && (h<(minutesPastMeridianW*(long)StepsPerDegreeAxis1/4L))) { verified=true; preferredPierSide=PPS_WEST; }
+  if ((getInstrPierSide()==PierSideWest) && (h>(-minutesPastMeridianE*(long)StepsPerDegreeAxis1/4L))) { verified=true; preferredPierSide=PPS_EAST; }
+  if (verified) {
+    double newRA,newDec;
+    getEqu(&newRA,&newDec,false);
+    GotoErrors r=goToEqu(newRA,newDec);
+    preferredPierSide=p;
+    return r;
+  } else return GOTO_ERR_OUTSIDE_LIMITS;
+}
+
 // moves the mount to a new Right Ascension and Declination (RA,Dec) in degrees
-byte goToEqu(double RA, double Dec) {
+GotoErrors goToEqu(double RA, double Dec) {
   double a,z;
+  double Axis1,Axis2;
+  double Axis1Alt,Axis2Alt;
 
   // Convert RA into hour angle, get altitude
   double HA=haRange(LST()*15.0-RA);
-  EquToHor(HA,Dec,&a,&z);
+  equToHor(HA,Dec,&a,&z);
 
   // validate
-  int f=validateGoto(); if (f==5) abortSlew=true; if (f!=0) return f;
-  f=validateGotoCoords(HA,Dec,a); if (f!=0) return f;
+  GotoErrors r=validateGoto(); if (r==GOTO_ERR_GOTO) { if (!abortSlew) abortSlew=StartAbortSlew; } if (r!=GOTO_ERR_NONE) return r;
+  r=validateGotoCoords(HA,Dec,a); if (r!=GOTO_ERR_NONE) return r;
 
 #ifdef MOUNT_TYPE_ALTAZM
-  if (Align.isReady()) {
-    // B=RA, D=Dec, H=Elevation, F=Azimuth (all in degrees)
-    Align.EquToInstr(HA,Dec,&a,&z);
-  } else {
-    EquToHor(HA,Dec,&a,&z);
-  }
-  z=haRange(z);  
+  equToHor(HA,Dec,&a,&z);
+  Align.horToInstr(a,z,&a,&z,getInstrPierSide());
+  z=haRange(z);
 
-  cli(); double a1=(posAxis1+indexAxis1Steps)/StepsPerDegreeAxis1; sei();
-
-#ifdef MOUNT_TYPE_ALTAZM
   if ((MaxAzm>180) && (MaxAzm<=360)) {
     // adjust coordinate range to allow going past 180 deg.
     // position a1 is 0..180
+    double a1=getInstrAxis1();
     if (a1>=0) {
       // and goto z is in -0..-180
       if (z<0) {
@@ -227,29 +249,18 @@ byte goToEqu(double RA, double Dec) {
       }
     }
   }
-#endif
   
-  // corrected to instrument horizon
-  z-=indexAxis1;
-  a-=indexAxis2;
-  long Axis1=z*(double)StepsPerDegreeAxis1;
-  long Axis2=a*(double)StepsPerDegreeAxis2;
-  long Axis1Alt=Axis1;
-  long Axis2Alt=Axis2;
+  Axis1=z;
+  Axis2=a;
+  Axis1Alt=z;
+  Axis2Alt=a;
 #else
   // correct for polar offset, refraction, coordinate systems, operation past pole, etc. as required
-  double h,d;
-  GeoAlign.EquToInstr(latitude,HA,Dec,&h,&d);
-  long Axis1=h*(double)StepsPerDegreeAxis1;
-  long Axis2=d*(double)StepsPerDegreeAxis2;
+  Align.equToInstr(HA,Dec,&Axis1,&Axis2,getInstrPierSide());
 
   // as above... for the opposite pier side just incase we need to do a meridian flip
-  byte p=pierSide; if (pierSide==PierSideEast) pierSide=PierSideWest; else if (pierSide==PierSideWest) pierSide=PierSideEast;
-  GeoAlign.EquToInstr(latitude,HA,Dec,&h,&d);
-  
-  long Axis1Alt=h*(double)StepsPerDegreeAxis1;
-  long Axis2Alt=d*(double)StepsPerDegreeAxis2;
-  pierSide=p;
+  int p=PierSideNone; if (getInstrPierSide()==PierSideEast) p=PierSideWest; else if (getInstrPierSide()==PierSideWest) p=PierSideEast;
+  Align.equToInstr(HA,Dec,&Axis1Alt,&Axis2Alt,p);
 #endif
 
   // goto function takes HA and Dec in steps
@@ -260,147 +271,114 @@ byte goToEqu(double RA, double Dec) {
     if (preferredPierSide==PPS_EAST) thisPierSide=PierSideEast;
   }
 
-  // only for 2+ star aligns
-  if (alignNumStars>1) {
-    // and only for the first three stars
-    if (alignThisStar<4) {
-      if (alignThisStar==1) thisPierSide=PierSideWest; else thisPierSide=PierSideEast;
-    }
-  }
   return goTo(Axis1,Axis2,Axis1Alt,Axis2Alt,thisPierSide);
 }
 
 // moves the mount to a new Altitude and Azmiuth (Alt,Azm) in degrees
-byte goToHor(double *Alt, double *Azm) {
+GotoErrors goToHor(double *Alt, double *Azm) {
   double HA,Dec;
   
-  HorToEqu(*Alt,*Azm,&HA,&Dec);
+  horToEqu(*Alt,*Azm,&HA,&Dec);
   double RA=degRange(LST()*15.0-HA);
   
   return goToEqu(RA,Dec);
 }
 
-// check if goto/sync is valid
-byte validateGoto() {
-  // Check state
-  if (faultAxis1 || faultAxis2)                         return 7;   // fail, hardware fault
-  if (!axis1Enabled)                                    return 3;   // fail, in standby
-  if (parkStatus!=NotParked)                            return 4;   // fail, parked or parking or park failed
-  if (guideDirAxis1 || guideDirAxis2)                   return 8;   // fail, already in motion
-  if (trackingState==TrackingMoveTo)                    return 5;   // fail, goto in progress
-  return 0;
-}
-byte validateGotoCoords(double HA, double Dec, double Alt) {
-  // Check coordinates
-  if (Alt<minAlt)                                       return 1;   // fail, below horizon
-  if (Alt>maxAlt)                                       return 2;   // fail, above overhead limit
-  if (Dec>MaxDec)                                       return 6;   // fail, outside limits
-  if (Dec<MinDec)                                       return 6;   // fail, outside limits
-  if ((abs(HA)>(double)UnderPoleLimit*15.0) )           return 6;   // fail, outside limits
-  return 0;
-}
-byte validateGoToEqu(double RA, double Dec) {
-  double a,z;
-  double HA=haRange(LST()*15.0-RA);
-  EquToHor(HA,Dec,&a,&z);
-  int f=validateGoto(); if (f!=0) return f;
-  f=validateGotoCoords(HA,Dec,a);
-  return f;
-}
-
 // moves the mount to a new Hour Angle and Declination - both are in steps.  Alternate targets are used when a meridian flip occurs
-byte goTo(long thisTargetAxis1, long thisTargetAxis2, long altTargetAxis1, long altTargetAxis2, byte gotoPierSide) {
+GotoErrors goTo(double thisTargetAxis1, double thisTargetAxis2, double altTargetAxis1, double altTargetAxis2, int gotoPierSide) {
   atHome=false;
+  int thisPierSide=getInstrPierSide();
+
   if (meridianFlip!=MeridianFlipNever) {
     // where the allowable hour angles are
-    long eastOfPierMaxHA= 12L*15L*(long)StepsPerDegreeAxis1;
-    long eastOfPierMinHA=-(minutesPastMeridianE*StepsPerDegreeAxis1/4L);
-    long westOfPierMaxHA= (minutesPastMeridianW*StepsPerDegreeAxis1/4L);
-    long westOfPierMinHA=-12L*15L*(long)StepsPerDegreeAxis1;
-  
+    double eastOfPierMaxHA= 180.0;
+    double eastOfPierMinHA=-minutesPastMeridianE/4.0;
+    double westOfPierMaxHA= minutesPastMeridianW/4.0;
+    double westOfPierMinHA=-180.0;
+
     // override the defaults and force a flip if near the meridian and possible (for parking and align)
-    if ((gotoPierSide!=PierSideBest) && (pierSide!=gotoPierSide)) {
-      if (pierSide==PierSideEast) eastOfPierMinHA= (minutesPastMeridianW*(long)StepsPerDegreeAxis1/4L);
-      if (pierSide==PierSideWest) westOfPierMaxHA=-(minutesPastMeridianE*(long)StepsPerDegreeAxis1/4L);
+    if ((gotoPierSide!=PierSideBest) && (thisPierSide!=gotoPierSide)) {
+      if (thisPierSide==PierSideEast) eastOfPierMinHA= minutesPastMeridianW/4.0;
+      if (thisPierSide==PierSideWest) westOfPierMaxHA=-minutesPastMeridianE/4.0;
     }
+    
     // if doing a meridian flip, use the opposite pier side coordinates
-    if (pierSide==PierSideEast) {
-      if ((thisTargetAxis1+indexAxis1Steps>eastOfPierMaxHA) || (thisTargetAxis1+indexAxis1Steps<eastOfPierMinHA)) {
-        pierSide=PierSideFlipEW1;
+    if (thisPierSide==PierSideEast) {
+      if ((thisTargetAxis1>eastOfPierMaxHA) || (thisTargetAxis1<eastOfPierMinHA)) {
+        thisPierSide=PierSideFlipEW1;
         thisTargetAxis1 =altTargetAxis1;
-        if (thisTargetAxis1+indexAxis1Steps>westOfPierMaxHA) return 6; // fail, outside limits
+        if (thisTargetAxis1>westOfPierMaxHA) return GOTO_ERR_OUTSIDE_LIMITS;
         thisTargetAxis2=altTargetAxis2;
       }
     } else
-    if (pierSide==PierSideWest) {
-      if ((thisTargetAxis1+indexAxis1Steps>westOfPierMaxHA) || (thisTargetAxis1+indexAxis1Steps<westOfPierMinHA)) {
-        pierSide=PierSideFlipWE1;
+    if (thisPierSide==PierSideWest) {
+      if ((thisTargetAxis1>westOfPierMaxHA) || (thisTargetAxis1<westOfPierMinHA)) {
+        thisPierSide=PierSideFlipWE1;
         thisTargetAxis1 =altTargetAxis1;
-        if (thisTargetAxis1+indexAxis1Steps<eastOfPierMinHA) return 6; // fail, outside limits
+        if (thisTargetAxis1<eastOfPierMinHA) return GOTO_ERR_OUTSIDE_LIMITS;
         thisTargetAxis2=altTargetAxis2;
       }
     } else
-    if (pierSide==PierSideNone) {
-      // indexAxis2 flips back and forth +/-, but that doesn't matter, if we're homed the indexAxis2 is 0
+    if (thisPierSide==PierSideNone) {
       // we're in the polar home position, so pick a side (of the pier)
       if (thisTargetAxis1<0) {
         // west side of pier - we're in the eastern sky and the HA's are negative
-        pierSide=PierSideWest;
-        defaultDirAxis2  =defaultDirAxis2WInit;
-        // default, if the polar-home position is +90 deg. HA, we want -90HA
-        // for a fork mount the polar-home position is 0 deg. HA, so leave it alone
-#if !defined(MOUNT_TYPE_FORK) && !defined(MOUNT_TYPE_FORK_ALT)
-        cli(); posAxis1-=(long)(180.0*(double)StepsPerDegreeAxis1); sei();
-        trueAxis1-=(long)(180.0*(double)StepsPerDegreeAxis1);
-#endif
+        thisPierSide=PierSideWest;
       } else {
         // east side of pier - we're in the western sky and the HA's are positive
         // this is the default in the polar-home position
-        pierSide=PierSideEast;
-        defaultDirAxis2 = defaultDirAxis2EInit;
+        thisPierSide=PierSideEast;
       }
     }
   } else {
-    if (pierSide==PierSideNone) {
+    if (getInstrPierSide()==PierSideNone) {
         // always on the "east" side of pier - we're in the western sky and the HA's are positive
         // this is the default in the polar-home position and also for MOUNT_TYPE_FORK and MOUNT_TYPE_ALTAZM.  MOUNT_TYPE_FORK_ALT ends up pierSideEast, but flips are allowed until aligned.
-        pierSide=PierSideEast;
-        defaultDirAxis2 = defaultDirAxis2EInit;
+        thisPierSide=PierSideEast;
     }
   }
   
   // final validation
 #ifdef MOUNT_TYPE_ALTAZM
   // allow +/- 360 in Az
-  if (((thisTargetAxis1+indexAxis1Steps>(long)StepsPerDegreeAxis1*MaxAzm) || (thisTargetAxis1+indexAxis1Steps<-(long)StepsPerDegreeAxis1*MaxAzm)) ||
-     ((thisTargetAxis2+indexAxis2Steps>(long)StepsPerDegreeAxis2*180L) || (thisTargetAxis2+indexAxis2Steps<-(long)StepsPerDegreeAxis2*180L))) return 9; // fail, unspecified error
+  if (((thisTargetAxis1>MaxAzm) || (thisTargetAxis1<-MaxAzm)) || ((thisTargetAxis2>180.0) || (thisTargetAxis2<-180.0))) return GOTO_ERR_UNSPECIFIED;
 #else
-  if (((thisTargetAxis1+indexAxis1Steps>(long)StepsPerDegreeAxis1*180L) || (thisTargetAxis1+indexAxis1Steps<-(long)StepsPerDegreeAxis1*180L)) ||
-     ((thisTargetAxis2+indexAxis2Steps>(long)StepsPerDegreeAxis2*180L) || (thisTargetAxis2+indexAxis2Steps<-(long)StepsPerDegreeAxis2*180L))) return 9; // fail, unspecified error
+  if (((thisTargetAxis1>180.0) || (thisTargetAxis1<-180.0)) || ((thisTargetAxis2>180.0) || (thisTargetAxis2<-180.0))) return GOTO_ERR_UNSPECIFIED;
 #endif
   lastTrackingState=trackingState;
 
   cli();
-  trackingState=TrackingMoveTo; 
+  trackingState=TrackingMoveTo;
   SiderealClockSetInterval(siderealInterval);
 
   startAxis1=posAxis1;
   startAxis2=posAxis2;
 
-  targetAxis1.part.m=thisTargetAxis1; targetAxis1.part.f=0;
-  targetAxis2.part.m=thisTargetAxis2; targetAxis2.part.f=0;
-
   timerRateAxis1=SiderealRate;
   timerRateAxis2=SiderealRate;
   sei();
 
-  DisablePec();
+  int p=PierSideEast; switch (thisPierSide) { case PierSideWest: case PierSideFlipEW1: p=PierSideWest; break; }
+  setTargetAxis1(thisTargetAxis1,p);
+  setTargetAxis2(thisTargetAxis2,p);
 
-  // sound goto start
+  #ifdef MERIDIAN_FLIP_SKIP_HOME_ON
+  boolean gotoDirect=true;
+  #else
+  boolean gotoDirect=false;
+  #endif
+  if (!pauseHome && gotoDirect) {
+    if (thisPierSide==PierSideFlipWE1) pierSideControl=PierSideEast; else
+    if (thisPierSide==PierSideFlipEW1) pierSideControl=PierSideWest; else pierSideControl=thisPierSide;
+  } else pierSideControl=thisPierSide;
+
+  D("Goto Axis1, Current "); D(((double)(long)posAxis1)/(double)StepsPerDegreeAxis1); D(" -to-> "); DL(((double)(long)targetAxis1.part.m)/(double)StepsPerDegreeAxis1);
+  D("Goto Axis2, Current "); D(((double)(long)posAxis2)/(double)StepsPerDegreeAxis2); D(" -to-> "); DL(((double)(long)targetAxis2.part.m)/(double)StepsPerDegreeAxis2); DL("");
+
+  reactivateBacklashComp();
+  disablePec();
   soundAlert();
+  stepperModeGoto();
 
-  StepperModeGoto();
-
-  return 0;
+  return GOTO_ERR_NONE;
 }
-

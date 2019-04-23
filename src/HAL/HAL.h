@@ -18,9 +18,17 @@
 #ifndef _HAL_H
 #define _HAL_H
 
+#ifndef IRAM_ATTR
+#define IRAM_ATTR
+#endif
+
 #if defined(__AVR_ATmega2560__)
   // Arduino Mega 2560
   #include "HAL_Mega2560/HAL_Mega2560.h"
+
+#elif defined(_mk20dx128_h_) || defined(__MK20DX128__)
+  // Teensy 3.0
+  #include "HAL_Teensy_3/HAL_Teensy_3.h"
 
 #elif defined(__MK20DX256__)
   // Teensy 3.2
@@ -50,6 +58,10 @@
 #elif defined(__SAM3X8E__)
   // Arduino Due
   #include "HAL_Due/HAL_Due.h"
+
+#elif defined(ESP32)
+  // ESP32
+  #include "HAL_ESP32/HAL_ESP32.h"
 
 #else
   #error "Unsupported Platform! If this is a new platform, it needs the appropriate entries in the HAL directory."

@@ -3,34 +3,96 @@
 // We define a more generic symbol, in case more Teensy boards based on different lines are supported
 #define __ARM_Teensy3__
 
-#include <EEPROM.h>
-
-// Lower limit (fastest) step rate in uS for this platform
-#if defined(__MK64FX512__)
-  #define MaxRate_LowerLimit 12
+// Lower limit (fastest) step rate in uS for this platform, width of step pulse, and set HAL_FAST_PROCESSOR is needed
+#if defined(__MK64FX512__) 
+  #define HAL_MAXRATE_LOWER_LIMIT 12
+  #define HAL_PULSE_WIDTH 500
+  #define HAL_FAST_PROCESSOR
 #elif defined(__MK66FX1M0__)
-  #define MaxRate_LowerLimit 4
+  #if (F_CPU>=240000000)
+    #define HAL_MAXRATE_LOWER_LIMIT 2
+    #define HAL_PULSE_WIDTH 260
+  #elif (F_CPU>=180000000)
+    #define HAL_MAXRATE_LOWER_LIMIT 2.6
+    #define HAL_PULSE_WIDTH 400
+  #else
+    #define HAL_MAXRATE_LOWER_LIMIT 4.8
+    #define HAL_PULSE_WIDTH 500
+  #endif
+  #define HAL_FAST_PROCESSOR
 #else
-  #define MaxRate_LowerLimit 16
+  // Teensy3.2,3.1,etc.
+  #if (F_CPU>=120000000)
+    #define HAL_MAXRATE_LOWER_LIMIT 10
+    #define HAL_PULSE_WIDTH 800
+  #elif (F_CPU>=96000000)
+    #define HAL_MAXRATE_LOWER_LIMIT 12
+    #define HAL_PULSE_WIDTH 900
+  #elif (F_CPU>=72000000)
+    #define HAL_MAXRATE_LOWER_LIMIT 14
+    #define HAL_PULSE_WIDTH 1000
+  #else
+    #define HAL_MAXRATE_LOWER_LIMIT 28
+    #define HAL_PULSE_WIDTH 1500
+  #endif
 #endif
 
 // New symbols for the Serial ports so they can be remapped if necessary -----------------------------
-#define PSerial Serial
-#define PSerial1 Serial1
-// SERIAL is always enabled SERIAL1 and SERIAL4 are optional
-#define HAL_SERIAL1_ENABLED
+#define SerialA Serial
+// SerialA is always enabled, SerialB and SerialC are optional
+#define SerialB Serial1
+#define HAL_SERIAL_B_ENABLED
 #if defined(__MK64FX512__) || defined(__MK66FX1M0__)
-#define PSerial4 Serial4
-// SERIAL is always enabled SERIAL1 and SERIAL4 are optional
-#define HAL_SERIAL4_ENABLED
+  #define SerialC Serial4
+  #define HAL_SERIAL_C_ENABLED
 #endif
 
 // New symbol for the default I2C port -------------------------------------------------------------
+#include <Wire.h>
 #if defined(__MK64FX512__) || defined(__MK66FX1M0__)
 #define HAL_Wire Wire1
 #else
 #define HAL_Wire Wire
 #endif
+
+// Non-volatile storage ------------------------------------------------------------------------------
+#if defined(NV_AT24C32_C)
+  #include "../drivers/NV_I2C_EEPROM_AT24C32_C.h"
+#elif defined(NV_AT24C32)
+  #include "../drivers/NV_I2C_EEPROM_AT24C32.h"
+#elif defined(NV_MB85RC256V)
+  #include "../drivers/NV_I2C_FRAM_MB85RC256V.h"
+#else
+  #include "../drivers/NV_EEPROM.h"
+#endif
+
+// Use an RTC (Real Time Clock) if present -----------------------------------------------------------
+#include "../drivers/RTCw.h"
+
+//--------------------------------------------------------------------------------------------------
+// General purpose initialize for HAL
+void HAL_Init(void) {
+  analogReadResolution(10);
+}
+
+//--------------------------------------------------------------------------------------------------
+// Internal MCU temperature (in degrees C)
+float HAL_MCU_Temperature(void) {
+#if defined(__MK64FX512__)
+  int Tpin=70;
+#elif defined(__MK66FX1M0__)
+  int Tpin=70;
+#else // Teensy3.0,3.1,3.2
+  int Tpin=38;
+#endif
+  // delta of -1.715 mV/C where 25C measures 719 mV
+//  analogReadResolution(12);
+//  delayMicroseconds(10);
+  float v=(analogRead(Tpin)/1024.0)*3.3;
+  float t=(-(v-0.719)/0.001715)+25.0;
+//  analogReadResolution(10);
+  return t;
+}
 
 //--------------------------------------------------------------------------------------------------
 // Initialize timers
@@ -46,12 +108,6 @@ void TIMER4_COMPA_vect(void);
 
 extern long int siderealInterval;
 extern void SiderealClockSetInterval (long int);
-
-// Init sidereal clock timer
-void HAL_Init_Timer_Sidereal() {
-  analogWriteResolution(8);
-  SiderealClockSetInterval(siderealInterval);
-}
 
 // Init Axis1 and Axis2 motor timers and set their priorities
 void HAL_Init_Timers_Motor() {
@@ -75,6 +131,12 @@ void HAL_Init_Timers_Motor() {
 void TIMER1_COMPA_vect(void);
 
 IntervalTimer itimer1;
+
+// Init sidereal clock timer
+void HAL_Init_Timer_Sidereal() {
+  analogWriteResolution(8);
+  SiderealClockSetInterval(siderealInterval);
+}
 
 void Timer1SetInterval(long iv, double rateRatio) {
   iv=round(((double)iv)/rateRatio);
@@ -109,4 +171,3 @@ void QuickSetIntervalAxis2(uint32_t r) {
 #define StepPinAxis2_LOW digitalWriteFast(Axis2StepPin, LOW)
 #define DirPinAxis2_HIGH digitalWriteFast(Axis2DirPin, HIGH)
 #define DirPinAxis2_LOW digitalWriteFast(Axis2DirPin, LOW)
-

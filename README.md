@@ -1,6 +1,7 @@
 OnStep Telescope Controller
 ===========================
 # Important Note
+
 THIS IS THE ALPHA BRANCH, THE MOST ADVANCED ONSTEP VERSION BUT ALSO THE LEAST WELL TESTED!
 
 THE BETA BRANCH IS RECOMMENDED FOR MOST USERS.
@@ -44,6 +45,12 @@ There are also [INDI](http://www.indilib.org/about.html) drivers so it can be us
 Detailed documentation, including the full set of features, detailed designs for
 PCBs, instructions on how to build a controller, how to configure the firmware
 for your particular mount, can all be found the [OnStep Group Wiki](https://groups.io/g/onstep/wiki/home).
+
+# Change Log
+All the changes are tracking in git, and a detailed list can be accessed using the
+following git command:
+ 
+git log --date=short --pretty=format:"%h %ad %<(20)%an %<(150,trunc)%s"
 
 # Support
 Questions and discussion should be on the mailing list (also accessible via the

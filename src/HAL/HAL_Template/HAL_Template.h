@@ -3,15 +3,42 @@
 // We define a more generic symbol, in case more Platform_Name boards based on different lines are supported
 #define __Platform_Name__
 
-#include <EEPROM.h>
+// Lower limit (fastest) step rate in uS for this platform (in SQW mode)
+#define HAL_MAXRATE_LOWER_LIMIT 16
+
+// width of step pulse
+#define HAL_PULSE_WIDTH 500
 
 // New symbols for the Serial ports so they can be remapped if necessary -----------------------------
-#define PSerial Serial
-// SERIAL is always enabled SERIAL1 and SERIAL4 are optional
-//#define PSerial1 Serial1
+#define SerialA Serial
+// SerialA is always enabled, SerialB and SerialC are optional
+//#define SerialB Serial1
 
 // New symbol for the default I2C port -------------------------------------------------------------
 #define HAL_Wire Wire
+
+// Non-volatile storage ------------------------------------------------------------------------------
+#if defined(NV_AT24C32)
+  #include "../drivers/NV_I2C_EEPROM_AT24C32.h"
+#elif defined(NV_MB85RC256V)
+  #include "../drivers/NV_I2C_FRAM_MB85RC256V.h"
+#else
+  #include "../drivers/NV_EEPROM.h"
+#endif
+
+// Use an RTC (Real Time Clock) if present -----------------------------------------------------------
+#include "../drivers/RTCw.h"
+
+//--------------------------------------------------------------------------------------------------
+// General purpose initialize for HAL
+void HAL_Init(void) {
+}
+
+//--------------------------------------------------------------------------------------------------
+// Internal MCU temperature (in degrees C)
+float HAL_MCU_Temperature(void) {
+  return -999;
+}
 
 //--------------------------------------------------------------------------------------------------
 // Initialize timers
@@ -66,4 +93,3 @@ void QuickSetIntervalAxis2(uint32_t r) {
 #define StepPinAxis2_LOW digitalWrite(Axis2StepPin, LOW)
 #define DirPinAxis2_HIGH digitalWrite(Axis2DirPin, HIGH)
 #define DirPinAxis2_LOW digitalWrite(Axis2DirPin, LOW)
-
