@@ -15,6 +15,18 @@
 #define STM32CZ_OFF      //  <- Turn _ON to use STM32F103VET6 CZ Mini
 
 #if defined(STM32Black_ON) || defined(STM32Blue_ON) || defined(STM32CZ_ON)
+
+#undef FirmwareBoard
+#if defined(STM32Black_ON) 
+#define FirmwareBoard "STM32Black"
+#elif defined(STM32Blue_ON)
+#define FirmwareBoard "STM32Blue"
+#elif defined(STM32CZ_ON)
+#define FirmwareBoard "STM32CZ"
+#endif
+
+
+
 // -------------------------------------------------------------------------------------------------------------------------
 // ADJUST THE FOLLOWING TO CONFIGURE YOUR CONTROLLER FEATURES --------------------------------------------------------------
 

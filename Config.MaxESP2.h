@@ -24,6 +24,8 @@
 // The stock Wire.h library appears to work properly
 
 #ifdef MaxESP2_ON
+#undef FirmwareBoard
+#define FirmwareBoard "MaxESP"
 // -------------------------------------------------------------------------------------------------------------------------
 // ADJUST THE FOLLOWING TO CONFIGURE YOUR CONTROLLER FEATURES --------------------------------------------------------------
 

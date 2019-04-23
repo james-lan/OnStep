@@ -22,6 +22,8 @@
 // C:\Users\xxxxxx\AppData\Local\Arduino15\packages\esp32\hardware\esp32\1.0.0\libraries\Wire\src
 
 #ifdef MaxESP_ON
+#undef FirmwareBoard
+#define FirmwareBoard "MaxESP_OLD"
 // -------------------------------------------------------------------------------------------------------------------------
 // ADJUST THE FOLLOWING TO CONFIGURE YOUR CONTROLLER FEATURES --------------------------------------------------------------
 

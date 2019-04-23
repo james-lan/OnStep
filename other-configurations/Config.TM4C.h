@@ -14,6 +14,8 @@
 #define TM4C_OFF   //  <- Turn _ON to use this configuration
 
 #ifdef TM4C_ON
+#undef FirmwareBoard
+#define FirmwareBoard "TM4C"
 // -------------------------------------------------------------------------------------------------------------------------
 // ADJUST THE FOLLOWING TO CONFIGURE YOUR CONTROLLER FEATURES --------------------------------------------------------------
 

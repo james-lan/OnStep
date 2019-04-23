@@ -13,6 +13,8 @@
 #define Mega2560Alt_OFF   //  <- Turn _ON to use this configuration
 
 #ifdef Mega2560Alt_ON
+#undef FirmwareBoard
+#define FirmwareBoard "Mega2560Alt"
 // -------------------------------------------------------------------------------------------------------------------------
 // ADJUST THE FOLLOWING TO CONFIGURE YOUR CONTROLLER FEATURES --------------------------------------------------------------
 

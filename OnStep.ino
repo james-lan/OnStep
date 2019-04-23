@@ -45,6 +45,7 @@
 #define FirmwareVersionConfig 2       // internal, for tracking configuration file changes
 #define FirmwareName          "On-Step"
 #define FirmwareTime          __TIME__
+#define FirmwareBoard         "Unknown" //Set by config file to reflect board type
 
 #include <errno.h>
 #include <math.h>
